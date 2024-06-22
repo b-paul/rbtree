@@ -689,6 +689,12 @@ impl<K: Ord, V> ExactSizeIterator for IntoIter<K, V> {
 
 impl<K: Ord, V> FusedIterator for IntoIter<K, V> {}
 
+impl<K: Ord, V> Drop for IntoIter<K, V> {
+    fn drop(&mut self) {
+        for _ in self {}
+    }
+}
+
 /// A direction for a node to be in, in a binary tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
