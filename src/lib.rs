@@ -8,6 +8,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use core::fmt::Debug;
+use core::hash::Hash;
 use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
@@ -425,6 +427,11 @@ impl<K: Ord, V> RbTree<K, V> {
         self.len
     }
 
+    /// Returns whether the tree is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Create a new empty tree.
     pub fn new() -> Self {
         Self::default()
@@ -451,12 +458,6 @@ impl<K: Ord, V> RbTree<K, V> {
     }
 }
 
-impl<K: Ord, V> Default for RbTree<K, V> {
-    fn default() -> Self {
-        Self { root: None, len: 0 }
-    }
-}
-
 impl<K: Ord, V> Drop for RbTree<K, V> {
     fn drop(&mut self) {
         let mut stack = Vec::new();
@@ -473,6 +474,32 @@ impl<K: Ord, V> Drop for RbTree<K, V> {
     }
 }
 
+impl<K: Ord, V> Default for RbTree<K, V> {
+    fn default() -> Self {
+        Self { root: None, len: 0 }
+    }
+}
+
+impl<K: Ord + Clone, V: Clone> Clone for RbTree<K, V> {
+    fn clone(&self) -> Self {
+        Self::from_iter(self.iter().map(|(k, v)| (k.clone(), v.clone())))
+    }
+}
+
+impl<K: Ord + Debug, V: Debug> Debug for RbTree<K, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_map().entries(self).finish()
+    }
+}
+
+impl<K: Ord + PartialEq, V: PartialEq> PartialEq for RbTree<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other)
+    }
+}
+
+impl<K: Ord + Eq, V: Eq> Eq for RbTree<K, V> {}
+
 impl<K: Ord, V> FromIterator<(K, V)> for RbTree<K, V> {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         let mut tree = RbTree::default();
@@ -480,6 +507,43 @@ impl<K: Ord, V> FromIterator<(K, V)> for RbTree<K, V> {
             tree.insert(k, v);
         }
         tree
+    }
+}
+
+impl<'a, K: Ord + Copy, V: Copy> Extend<(&'a K, &'a V)> for RbTree<K, V> {
+    fn extend<T: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, iter: T) {
+        for (&k, &v) in iter {
+            self.insert(k, v);
+        }
+    }
+}
+
+impl<K: Ord, V: PartialOrd> PartialOrd for RbTree<K, V> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.iter().partial_cmp(other)
+    }
+}
+
+impl<K: Ord, V: Ord> Ord for RbTree<K, V> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.iter().cmp(other)
+    }
+}
+
+impl<K: Ord + Hash, V: Hash> Hash for RbTree<K, V> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.len().hash(state);
+        for (k, v) in self {
+            (k, v).hash(state);
+        }
+    }
+}
+
+impl<K: Ord, V> Extend<(K, V)> for RbTree<K, V> {
+    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
     }
 }
 
@@ -732,6 +796,30 @@ mod test {
 
         for (key, val) in tree {
             assert_eq!(key + 1, val);
+        }
+    }
+
+    #[test]
+    fn test_traits() {
+        let mut tree = RbTree::from_iter((0..100).map(|x| (x, x)));
+
+        let mut tree2 = RbTree::new();
+        for x in 0..100 {
+            tree2.insert(x, x);
+        }
+        assert_eq!(tree, tree2);
+
+        tree.extend(tree2.into_iter().map(|(k, v)| (k + 100, v)));
+        for x in 100..200 {
+            assert!(tree.get(&x) == Some(&(x - 100)));
+        }
+
+        let tree2 = tree.clone();
+        for item in tree2.iter() {
+            assert!(tree.iter().any(|i| i == item));
+        }
+        for item in tree.iter() {
+            assert!(tree2.iter().any(|i| i == item));
         }
     }
 }
