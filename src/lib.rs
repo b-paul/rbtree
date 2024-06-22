@@ -185,8 +185,6 @@ impl<K: Ord, V> RbTree<K, V> {
             colour: Colour::Red,
             parent,
             child: [None, None],
-            _key_marker: PhantomData,
-            _val_marker: PhantomData,
         });
         cur = unsafe { Some(NonNull::new_unchecked(Box::into_raw(node))) };
         match parent {
@@ -471,9 +469,6 @@ struct RbNode<K: Ord, V> {
     parent: Option<NonNull<RbNode<K, V>>>,
     /// Our two child nodes.
     child: [Option<NonNull<RbNode<K, V>>>; 2],
-
-    _key_marker: PhantomData<K>,
-    _val_marker: PhantomData<V>,
 }
 
 impl<K: Ord, V> core::ops::Index<Direction> for RbNode<K, V> {
