@@ -6,14 +6,19 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::cmp::Ordering;
+use core::iter::FusedIterator;
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 
 /// A Red-Black tree for use as an ordered map. See the root level documentation for more info.
-#[derive(Default)]
 pub struct RbTree<K: Ord, V> {
     /// The root node of the tree.
     root: Option<NonNull<RbNode<K, V>>>,
+    /// The amount of nodes in the tree.
+    len: usize,
 }
 
 impl<K: Ord, V> RbTree<K, V> {
@@ -182,6 +187,7 @@ impl<K: Ord, V> RbTree<K, V> {
             parent,
             child: [None, None],
         });
+        self.len += 1;
         cur = unsafe { Some(NonNull::new_unchecked(Box::into_raw(node))) };
         match parent {
             None => {
@@ -336,6 +342,7 @@ impl<K: Ord, V> RbTree<K, V> {
             }
         }
         let removed = *unsafe { Box::from_raw(node.as_ptr()) };
+        self.len -= 1;
 
         if old_colour == Colour::Black {
             while let Some(parent) = replacement_parent {
@@ -381,7 +388,8 @@ impl<K: Ord, V> RbTree<K, V> {
                             .is_some_and(|n| (*n.as_ptr()).colour == Colour::Red)
                         {
                             // Lol this unwrap_unchecked is so sad I want if let chains!
-                            let child = (*sibling.as_ptr())[sibling_direction.opposite()].unwrap_unchecked();
+                            let child = (*sibling.as_ptr())[sibling_direction.opposite()]
+                                .unwrap_unchecked();
                             // If the inner child of the sibling is red, then we can rotate it and
                             // recolour so that the outer child is red instead.
                             (*child.as_ptr()).colour = Colour::Black;
@@ -411,11 +419,47 @@ impl<K: Ord, V> RbTree<K, V> {
         }
         Some(removed.val)
     }
+
+    /// Returns the amount of elements stored in the tree.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Create a new empty tree.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return a borrowing iterator over the key value pairs in the tree.
+    pub fn iter(&self) -> Iter<K, V> {
+        Iter {
+            stack: Vec::new(),
+            cur: self.root,
+            len: self.len,
+            _lifetime: PhantomData,
+        }
+    }
+
+    /// Return an iterator over pairs of keys and mutable references to values in the tree.
+    pub fn iter_mut(&self) -> IterMut<K, V> {
+        IterMut {
+            stack: Vec::new(),
+            cur: self.root,
+            len: self.len,
+            _lifetime: PhantomData,
+        }
+    }
+}
+
+impl<K: Ord, V> Default for RbTree<K, V> {
+    fn default() -> Self {
+        Self { root: None, len: 0 }
+    }
 }
 
 impl<K: Ord, V> Drop for RbTree<K, V> {
     fn drop(&mut self) {
-        let mut stack = alloc::vec::Vec::new();
+        let mut stack = Vec::new();
         if let Some(root) = self.root {
             stack.push(root);
         }
@@ -428,6 +472,158 @@ impl<K: Ord, V> Drop for RbTree<K, V> {
         }
     }
 }
+
+impl<K: Ord, V> FromIterator<(K, V)> for RbTree<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        let mut tree = RbTree::default();
+        for (k, v) in iter {
+            tree.insert(k, v);
+        }
+        tree
+    }
+}
+
+impl<'a, K: Ord, V> IntoIterator for &'a RbTree<K, V> {
+    type Item = (&'a K, &'a V);
+
+    type IntoIter = Iter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<K: Ord, V> IntoIterator for RbTree<K, V> {
+    type Item = (K, V);
+
+    type IntoIter = IntoIter<K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let tree = ManuallyDrop::new(self);
+        IntoIter {
+            stack: Vec::new(),
+            cur: tree.root,
+            len: tree.len,
+        }
+    }
+}
+
+/// A borrowing iterator over the elements of an `RbTree`.
+///
+/// The order of elements that the iterator generates is close enough to random I guess.
+pub struct Iter<'a, K: Ord, V> {
+    stack: Vec<NonNull<RbNode<K, V>>>,
+    cur: Option<NonNull<RbNode<K, V>>>,
+    len: usize,
+    _lifetime: PhantomData<&'a V>,
+}
+
+impl<'a, K: Ord + 'a, V: 'a> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur = self.cur?;
+
+        for child in unsafe { (*cur.as_ptr()).child.into_iter().flatten() } {
+            self.stack.push(child);
+        }
+        self.cur = self.stack.pop();
+
+        self.len -= 1;
+
+        unsafe { Some((&(*cur.as_ptr()).key, &(*cur.as_ptr()).val)) }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> ExactSizeIterator for Iter<'a, K, V> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> FusedIterator for Iter<'a, K, V> {}
+
+/// An iterator over mutable references of the elements of an `RbTree`.
+///
+/// The order of elements that the iterator generates is close enough to random I guess.
+pub struct IterMut<'a, K: Ord, V> {
+    stack: Vec<NonNull<RbNode<K, V>>>,
+    cur: Option<NonNull<RbNode<K, V>>>,
+    len: usize,
+    _lifetime: PhantomData<&'a V>,
+}
+
+impl<'a, K: Ord + 'a, V: 'a> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur = self.cur?;
+
+        for child in unsafe { (*cur.as_ptr()).child.into_iter().flatten() } {
+            self.stack.push(child);
+        }
+        self.cur = self.stack.pop();
+
+        self.len -= 1;
+
+        unsafe { Some((&(*cur.as_ptr()).key, &mut (*cur.as_ptr()).val)) }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> ExactSizeIterator for IterMut<'a, K, V> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<'a, K: Ord + 'a, V: 'a> FusedIterator for IterMut<'a, K, V> {}
+
+/// An owning iterator over the elements in an `RbTree`.
+///
+/// The order of elements that the iterator generates is close enough to random I guess.
+pub struct IntoIter<K: Ord, V> {
+    stack: Vec<NonNull<RbNode<K, V>>>,
+    cur: Option<NonNull<RbNode<K, V>>>,
+    len: usize,
+}
+
+impl<K: Ord, V> Iterator for IntoIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let cur = self.cur?;
+
+        for child in unsafe { (*cur.as_ptr()).child.into_iter().flatten() } {
+            self.stack.push(child);
+        }
+        self.cur = self.stack.pop();
+
+        let cur = unsafe { Box::from_raw(cur.as_ptr()) };
+        self.len -= 1;
+
+        Some((cur.key, cur.val))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+impl<K: Ord, V> ExactSizeIterator for IntoIter<K, V> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<K: Ord, V> FusedIterator for IntoIter<K, V> {}
 
 /// A direction for a node to be in, in a binary tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,7 +688,7 @@ mod test {
     use crate::RbTree;
 
     #[test]
-    fn test() {
+    fn test_ops() {
         let mut tree = RbTree::default();
 
         const COUNT: usize = 1000000;
@@ -503,6 +699,7 @@ mod test {
         for key in 0..COUNT {
             tree.insert(key, key);
         }
+        assert!(tree.len() == COUNT);
         for key in 0..COUNT {
             assert!(tree.get(&key) == Some(&key));
         }
@@ -511,6 +708,30 @@ mod test {
         }
         for key in 0..COUNT {
             assert!(tree.get(&key) == None);
+        }
+    }
+
+    #[test]
+    fn test_iter() {
+        let mut tree = RbTree::default();
+
+        const COUNT: usize = 100;
+
+        for key in 0..COUNT {
+            tree.insert(key, key);
+        }
+
+        for (key, val) in tree.iter() {
+            assert_eq!(key, val);
+        }
+
+        for (key, val) in tree.iter_mut() {
+            assert_eq!(key, val);
+            *val += 1;
+        }
+
+        for (key, val) in tree {
+            assert_eq!(key + 1, val);
         }
     }
 }
