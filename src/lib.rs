@@ -7,7 +7,6 @@ extern crate alloc;
 
 use alloc::boxed::Box;
 use core::cmp::Ordering;
-use core::marker::PhantomData;
 use core::ptr::NonNull;
 
 /// A Red-Black tree for use as an ordered map. See the root level documentation for more info.
@@ -15,9 +14,6 @@ use core::ptr::NonNull;
 pub struct RbTree<K: Ord, V> {
     /// The root node of the tree.
     root: Option<NonNull<RbNode<K, V>>>,
-
-    _key_marker: PhantomData<K>,
-    _val_marker: PhantomData<V>,
 }
 
 impl<K: Ord, V> RbTree<K, V> {
