@@ -492,6 +492,14 @@ impl<K: Ord + Debug, V: Debug> Debug for RbTree<K, V> {
     }
 }
 
+impl<K: Ord + PartialEq, V: PartialEq> PartialEq for RbTree<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().all(|(k, v)| other.get(k) == Some(v))
+    }
+}
+
+impl<K: Ord + Eq, V: Eq> Eq for RbTree<K, V> {}
+
 impl<K: Ord, V> FromIterator<(K, V)> for RbTree<K, V> {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         let mut tree = RbTree::default();
