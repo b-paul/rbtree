@@ -88,11 +88,106 @@ impl<K: Ord, V> RbTree<K, V> {
         }
     }
 
-    fn min_node(&self, mut root: Option<NonNull<RbNode<K, V>>>) -> Option<NonNull<RbNode<K, V>>> {
-        while let Some(node) = root {
-            root = unsafe { (*node.as_ptr())[Direction::Left] };
+    fn min_node(&self, root: Option<NonNull<RbNode<K, V>>>) -> Option<NonNull<RbNode<K, V>>> {
+        let mut root = root?;
+        while let Some(node) = unsafe { (*root.as_ptr())[Direction::Left] } {
+            root = node;
         }
-        root
+        Some(root)
+    }
+
+    fn max_node(&self, root: Option<NonNull<RbNode<K, V>>>) -> Option<NonNull<RbNode<K, V>>> {
+        let mut root = root?;
+        while let Some(node) = unsafe { (*root.as_ptr())[Direction::Right] } {
+            root = node;
+        }
+        Some(root)
+    }
+
+    /// Remove the pair with the least key.
+    ///
+    /// ```rust
+    /// # use rbtree::RbTree;
+    ///
+    /// let mut map = RbTree::default();
+    ///
+    /// map.insert(4, 6);
+    /// map.insert(5, 7);
+    /// map.insert(6, 8);
+    ///
+    /// assert!(map.pop_min() == Some((4, 6)));
+    /// assert!(map.pop_min() == Some((5, 7)));
+    /// assert!(map.pop_min() == Some((6, 8)));
+    /// ```
+    pub fn pop_min(&mut self) -> Option<(K, V)> {
+        self.min_node(self.root).map(|n| self.remove_node(n))
+    }
+
+    /// Remove the pair with the largest key.
+    ///
+    /// ```rust
+    /// # use rbtree::RbTree;
+    ///
+    /// let mut map = RbTree::default();
+    ///
+    /// map.insert(4, 6);
+    /// map.insert(5, 7);
+    /// map.insert(6, 8);
+    ///
+    /// assert!(map.pop_max() == Some((6, 8)));
+    /// assert!(map.pop_max() == Some((5, 7)));
+    /// assert!(map.pop_max() == Some((4, 6)));
+    /// ```
+    pub fn pop_max(&mut self) -> Option<(K, V)> {
+        self.max_node(self.root).map(|n| self.remove_node(n))
+    }
+
+    /// Get the pair with the least key.
+    ///
+    /// ```rust
+    /// # use rbtree::RbTree;
+    ///
+    /// let mut map = RbTree::default();
+    ///
+    /// map.insert(4, 6);
+    /// map.insert(5, 7);
+    /// map.insert(6, 8);
+    ///
+    /// assert!(map.get_min() == Some((&4, &6)));
+    /// map.pop_min();
+    /// assert!(map.get_min() == Some((&5, &7)));
+    /// map.pop_min();
+    /// assert!(map.get_min() == Some((&6, &8)));
+    /// ```
+    pub fn get_min(&self) -> Option<(&K, &V)> {
+        self.min_node(self.root).map(|n| {
+            let n = unsafe { n.as_ref() };
+            (&n.key, &n.val)
+        })
+    }
+
+    /// Get the pair with the largest key.
+    ///
+    /// ```rust
+    /// # use rbtree::RbTree;
+    ///
+    /// let mut map = RbTree::default();
+    ///
+    /// map.insert(4, 6);
+    /// map.insert(5, 7);
+    /// map.insert(6, 8);
+    ///
+    /// assert!(map.get_max() == Some((&6, &8)));
+    /// map.pop_max();
+    /// assert!(map.get_max() == Some((&5, &7)));
+    /// map.pop_max();
+    /// assert!(map.get_max() == Some((&4, &6)));
+    /// ```
+    pub fn get_max(&self) -> Option<(&K, &V)> {
+        self.max_node(self.root).map(|n| {
+            let n = unsafe { n.as_ref() };
+            (&n.key, &n.val)
+        })
     }
 
     /// Get a value if it exists.
@@ -268,38 +363,7 @@ impl<K: Ord, V> RbTree<K, V> {
         }
     }
 
-    /// Remove a value from the map (if it exists).
-    ///
-    /// ```rust
-    /// # use rbtree::RbTree;
-    ///
-    /// let mut map = RbTree::default();
-    ///
-    /// map.insert(4, 6);
-    /// assert!(map.remove(&4) == Some(6));
-    /// assert!(map.get(&4) == None);
-    /// ```
-    pub fn remove(&mut self, key: &K) -> Option<V> {
-        // Find the node that we want to remove
-        let mut cur = self.root;
-        while let Some(node) = cur {
-            let (node_key, left, right) = unsafe {
-                (
-                    &(*node.as_ptr()).key,
-                    (*node.as_ptr()).child[0],
-                    (*node.as_ptr()).child[1],
-                )
-            };
-            match key.cmp(node_key) {
-                Ordering::Less => cur = left,
-                Ordering::Equal => break,
-                Ordering::Greater => cur = right,
-            }
-        }
-        // If cur is None, we didn't find a node with our key in the tree, so there is nothing to
-        // remove.
-        let node = cur?;
-
+    fn remove_node(&mut self, node: NonNull<RbNode<K, V>>) -> (K, V) {
         let mut replacement;
         let mut replacement_parent;
         let mut old_colour = unsafe { (*node.as_ptr()).colour };
@@ -329,7 +393,7 @@ impl<K: Ord, V> RbTree<K, V> {
                 old_colour = (*min.as_ptr()).colour;
                 replacement = (*min.as_ptr())[Direction::Right];
                 replacement_parent = Some(min);
-                if (*min.as_ptr()).parent != cur {
+                if (*min.as_ptr()).parent != Some(node) {
                     self.transplant(min, (*min.as_ptr())[Direction::Right]);
                     (*min.as_ptr())[Direction::Right] = (*node.as_ptr())[Direction::Right];
                     (*(*min.as_ptr())[Direction::Right]
@@ -419,7 +483,39 @@ impl<K: Ord, V> RbTree<K, V> {
                 unsafe { (*node.as_ptr()).colour = Colour::Black };
             }
         }
-        Some(removed.val)
+        (removed.key, removed.val)
+    }
+
+    /// Remove a value from the map (if it exists).
+    ///
+    /// ```rust
+    /// # use rbtree::RbTree;
+    ///
+    /// let mut map = RbTree::default();
+    ///
+    /// map.insert(4, 6);
+    /// assert!(map.remove(&4) == Some(6));
+    /// assert!(map.get(&4) == None);
+    /// ```
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        // Find the node that we want to remove
+        let mut cur = self.root;
+        while let Some(node) = cur {
+            let (node_key, left, right) = unsafe {
+                (
+                    &(*node.as_ptr()).key,
+                    (*node.as_ptr()).child[0],
+                    (*node.as_ptr()).child[1],
+                )
+            };
+            match key.cmp(node_key) {
+                Ordering::Less => cur = left,
+                Ordering::Equal => break,
+                Ordering::Greater => cur = right,
+            }
+        }
+
+        cur.map(|n| self.remove_node(n).1)
     }
 
     /// Returns the amount of elements stored in the tree.
@@ -455,6 +551,29 @@ impl<K: Ord, V> RbTree<K, V> {
             len: self.len,
             _lifetime: PhantomData,
         }
+    }
+
+    /// Return a borring iterator over the key value pairs in the tree, ordered by key.
+    pub fn sorted_iter(&self) -> SortedIter<K, V> {
+        SortedIter {
+            tree: self,
+            front: self.min_node(self.root),
+            back: self.max_node(self.root),
+        }
+    }
+
+    /// Return a borring mutable iterator over the key value pairs in the tree, ordered by key.
+    pub fn sorted_iter_mut(&mut self) -> SortedIterMut<K, V> {
+        SortedIterMut {
+            tree: self,
+            front: self.min_node(self.root),
+            back: self.max_node(self.root),
+        }
+    }
+
+    /// Return an owning iterator over elements, ordered by key
+    pub fn sorted_into_iter(self) -> SortedIntoIter<K, V> {
+        SortedIntoIter { tree: self }
     }
 }
 
@@ -683,6 +802,192 @@ impl<K: Ord, V> Drop for IntoIter<K, V> {
     }
 }
 
+/// A borring iterator ordered by key.
+pub struct SortedIter<'a, K: Ord, V> {
+    tree: &'a RbTree<K, V>,
+    front: Option<NonNull<RbNode<K, V>>>,
+    back: Option<NonNull<RbNode<K, V>>>,
+}
+
+impl<'a, K: Ord, V> Iterator for SortedIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let front = unsafe { self.front?.as_ref() };
+
+        if self.front == self.back {
+            self.front = None;
+            self.back = None;
+            return Some((&front.key, &front.val));
+        }
+
+        self.front = {
+            if let Some(right) = front[Direction::Right] {
+                self.tree.min_node(Some(right))
+            } else if let Some(mut parent) = front.parent {
+                let mut cur = self.front?;
+                while Some(cur) == unsafe { (*parent.as_ptr())[Direction::Right] } {
+                    cur = parent;
+                    parent = match unsafe { (*parent.as_ptr()).parent } {
+                        Some(p) => p,
+                        None => {
+                            self.front = None;
+                            return Some((&front.key, &front.val));
+                        }
+                    }
+                }
+                Some(parent)
+            } else {
+                None
+            }
+        };
+
+        Some((&front.key, &front.val))
+    }
+}
+
+impl<'a, K: Ord, V> DoubleEndedIterator for SortedIter<'a, K, V> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let back = unsafe { self.back?.as_ref() };
+
+        if self.front == self.back {
+            self.front = None;
+            self.back = None;
+            return Some((&back.key, &back.val));
+        }
+
+        self.back = {
+            if let Some(left) = back[Direction::Left] {
+                self.tree.max_node(Some(left))
+            } else if let Some(mut parent) = back.parent {
+                let mut cur = self.back?;
+                while Some(cur) == unsafe { (*parent.as_ptr())[Direction::Left] } {
+                    cur = parent;
+                    parent = match unsafe { (*parent.as_ptr()).parent } {
+                        Some(p) => p,
+                        None => {
+                            self.back = None;
+                            return Some((&back.key, &back.val));
+                        }
+                    }
+                }
+                Some(parent)
+            } else {
+                None
+            }
+        };
+
+        Some((&back.key, &back.val))
+    }
+}
+
+/// A mutably borrowing iterator sorted by key returning values. Keys are not mutable as they can
+/// break the tree balance.
+pub struct SortedIterMut<'a, K: Ord, V> {
+    tree: &'a RbTree<K, V>,
+    front: Option<NonNull<RbNode<K, V>>>,
+    back: Option<NonNull<RbNode<K, V>>>,
+}
+
+impl<'a, K: Ord, V> Iterator for SortedIterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let front = unsafe { self.front?.as_mut() };
+
+        if self.front == self.back {
+            self.front = None;
+            self.back = None;
+            return Some((&front.key, &mut front.val));
+        }
+
+        self.front = {
+            if let Some(right) = front[Direction::Right] {
+                self.tree.min_node(Some(right))
+            } else if let Some(mut parent) = front.parent {
+                let mut cur = self.front?;
+                while Some(cur) == unsafe { (*parent.as_ptr())[Direction::Right] } {
+                    cur = parent;
+                    parent = match unsafe { (*parent.as_ptr()).parent } {
+                        Some(p) => p,
+                        None => {
+                            self.front = None;
+                            return Some((&front.key, &mut front.val));
+                        }
+                    }
+                }
+                Some(parent)
+            } else {
+                None
+            }
+        };
+
+        Some((&front.key, &mut front.val))
+    }
+}
+
+impl<'a, K: Ord, V> DoubleEndedIterator for SortedIterMut<'a, K, V> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let back = unsafe { self.back?.as_mut() };
+
+        if self.front == self.back {
+            self.front = None;
+            self.back = None;
+            return Some((&back.key, &mut back.val));
+        }
+
+        self.back = {
+            if let Some(right) = back[Direction::Left] {
+                self.tree.max_node(Some(right))
+            } else if let Some(mut parent) = back.parent {
+                let mut cur = self.back?;
+                while Some(cur) == unsafe { (*parent.as_ptr())[Direction::Left] } {
+                    cur = parent;
+                    parent = match unsafe { (*parent.as_ptr()).parent } {
+                        Some(p) => p,
+                        None => {
+                            self.back = None;
+                            return Some((&back.key, &mut back.val));
+                        }
+                    }
+                }
+                Some(parent)
+            } else {
+                None
+            }
+        };
+
+        Some((&back.key, &mut back.val))
+    }
+}
+
+/// An owning iterator ordered by key.
+pub struct SortedIntoIter<K: Ord, V> {
+    tree: RbTree<K, V>,
+}
+
+impl<K: Ord, V> Iterator for SortedIntoIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.tree.pop_min()
+    }
+}
+
+impl<K: Ord, V> ExactSizeIterator for SortedIntoIter<K, V> {
+    fn len(&self) -> usize {
+        self.tree.len()
+    }
+}
+
+impl<K: Ord, V> FusedIterator for SortedIntoIter<K, V> {}
+
+impl<K: Ord, V> DoubleEndedIterator for SortedIntoIter<K, V> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.tree.pop_max()
+    }
+}
+
 /// A direction for a node to be in, in a binary tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
@@ -790,6 +1095,44 @@ mod test {
 
         for (key, val) in tree {
             assert_eq!(key + 1, val);
+        }
+    }
+
+    #[test]
+    fn test_sorted_iter() {
+        let mut tree = RbTree::new();
+
+        const COUNT: usize = 100;
+
+        for key in 0..COUNT {
+            tree.insert(key, key);
+        }
+
+        for (i, (&k, &v)) in tree.sorted_iter().enumerate() {
+            assert!(k == i);
+            assert!(v == i);
+        }
+
+        for (i, (&k, &v)) in tree.sorted_iter().rev().enumerate() {
+            assert!(k == 99 - i);
+            assert!(v == 99 - i);
+        }
+
+        let mut sorted_iter = tree.sorted_iter();
+
+        for i in 0..50 {
+            let (&front, _) = sorted_iter.next().unwrap();
+            let (&back, _) = sorted_iter.next_back().unwrap();
+            assert!(front == i);
+            assert!(back == 99 - i);
+        }
+
+        for (k, v) in tree.sorted_iter_mut() {
+            *v = k + 1;
+        }
+
+        for (&k, &v) in tree.sorted_iter() {
+            assert!(v == k + 1);
         }
     }
 
