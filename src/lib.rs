@@ -1144,7 +1144,7 @@ mod test {
         for x in 0..100 {
             tree2.insert(x, x);
         }
-        // TODO assert_eq!(tree, tree2);
+        assert_eq!(tree, tree2);
 
         tree.extend(tree2.into_iter().map(|(k, v)| (k + 100, v)));
         for x in 100..200 {
