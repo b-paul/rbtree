@@ -15,6 +15,65 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ptr::NonNull;
 
+/// A direction for a node to be in, in a binary tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Direction {
+    Left,
+    Right,
+}
+
+impl Direction {
+    /// Get the opposite of a direction.
+    fn opposite(self) -> Direction {
+        match self {
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+        }
+    }
+}
+
+/// The colour of an RbNode. See `RbNode` for more info.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Colour {
+    Red,
+    Black,
+}
+
+/// An RbNode. Each node has a key value pair, and a colour used for balancing.
+struct RbNode<K: Ord, V> {
+    key: K,
+    val: V,
+    /// The colour of this node. Every node has a colour for balancing purposes.
+    colour: Colour,
+
+    /// A raw pointer to the parent of this node. This pointer is None iff the node is the root
+    /// node.
+    parent: Option<NonNull<RbNode<K, V>>>,
+    /// Our two child nodes.
+    child: [Option<NonNull<RbNode<K, V>>>; 2],
+}
+
+impl<K: Ord, V> core::ops::Index<Direction> for RbNode<K, V> {
+    type Output = Option<NonNull<RbNode<K, V>>>;
+
+    fn index(&self, index: Direction) -> &Self::Output {
+        match index {
+            Direction::Left => &self.child[0],
+            Direction::Right => &self.child[1],
+        }
+    }
+}
+
+impl<K: Ord, V> core::ops::IndexMut<Direction> for RbNode<K, V> {
+    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+        match index {
+            Direction::Left => &mut self.child[0],
+            Direction::Right => &mut self.child[1],
+        }
+    }
+}
+
+
 /// A Red-Black tree for use as an ordered map. See the root level documentation for more info.
 pub struct RbTree<K: Ord, V> {
     /// The root node of the tree.
@@ -987,65 +1046,6 @@ impl<K: Ord, V> DoubleEndedIterator for SortedIntoIter<K, V> {
         self.tree.pop_max()
     }
 }
-
-/// A direction for a node to be in, in a binary tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Direction {
-    Left,
-    Right,
-}
-
-impl Direction {
-    /// Get the opposite of a direction.
-    fn opposite(self) -> Direction {
-        match self {
-            Direction::Left => Direction::Right,
-            Direction::Right => Direction::Left,
-        }
-    }
-}
-
-/// The colour of an RbNode. See `RbNode` for more info.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Colour {
-    Red,
-    Black,
-}
-
-/// An RbNode. Each node has a key value pair, and a colour used for balancing.
-struct RbNode<K: Ord, V> {
-    key: K,
-    val: V,
-    /// The colour of this node. Every node has a colour for balancing purposes.
-    colour: Colour,
-
-    /// A raw pointer to the parent of this node. This pointer is None iff the node is the root
-    /// node.
-    parent: Option<NonNull<RbNode<K, V>>>,
-    /// Our two child nodes.
-    child: [Option<NonNull<RbNode<K, V>>>; 2],
-}
-
-impl<K: Ord, V> core::ops::Index<Direction> for RbNode<K, V> {
-    type Output = Option<NonNull<RbNode<K, V>>>;
-
-    fn index(&self, index: Direction) -> &Self::Output {
-        match index {
-            Direction::Left => &self.child[0],
-            Direction::Right => &self.child[1],
-        }
-    }
-}
-
-impl<K: Ord, V> core::ops::IndexMut<Direction> for RbNode<K, V> {
-    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
-        match index {
-            Direction::Left => &mut self.child[0],
-            Direction::Right => &mut self.child[1],
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::RbTree;
